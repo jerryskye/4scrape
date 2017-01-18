@@ -22,7 +22,7 @@ end
 
 def scrape_thread(board, thread, path)
 	uri = "http://boards.4chan.org/#{board}/thread/#{thread[0]}"
-	dir = "#{path}/#{thread[0]}_#{thread[1][:sub]}"
+	dir = "#{path}/#{thread[0]}_#{thread[1][:sub].delete('/')}"
 	Dir.mkdir(dir) unless Dir.exists?(dir)
 	kek = Nokogiri::HTML(HTTParty.get(uri)).css('form#delform > div.board > div.thread > div.postContainer')
 	max = thread[1][:i] + 1
