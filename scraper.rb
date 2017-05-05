@@ -1,44 +1,53 @@
-require 'nokogiri'
-require 'httparty'
+require 'mechanize'
+require 'json'
 require 'cgi'
 require 'ruby-progressbar'
 
-def show_threads(board, path)
-	kek = HTTParty.get("http://boards.4chan.org/#{board}/catalog")[/catalog = .*/]
-	kek = eval(kek[0, kek.index(/var \w+ =/)].rstrip.chop)
-	kek[:threads].each do |thread|
-		puts CGI.unescapeHTML "\nThread ##{thread[0].to_s}(R:#{thread[1][:r]}/I:#{thread[1][:i]}): #{thread[1][:sub]}"
-		puts CGI.unescapeHTML thread[1][:teaser].slice(0, 100)
-		print "Scrape? (y/n/q) "
-		case $stdin.gets.chomp.downcase
-		when "y", "yes"
-			scrape_thread(board, thread, path)
-		when "q", "quit", "exit"
-			puts "Quitting"
-			break
+STATIC_FILE_SERVER = 'http://i.4cdn.org'
+
+def show_threads(path, board)
+	catalog = JSON.parse(@client.get("http://boards.4chan.org/#{board}/catalog.json").body)
+	catalog.each do |page|
+		page['threads'].each do |thread|
+			puts CGI.unescapeHTML "\nThread ##{thread['no']}(R:#{thread['replies']}/I:#{thread['images']}): #{thread['sub']}"
+			puts CGI.unescapeHTML thread['com'].slice(0, 100) if thread.has_key? 'com'
+			print "Scrape? (y/n/q) "
+			case STDIN.gets.chomp.downcase
+			when "y", "yes"
+				scrape_thread(path, board, thread['no'].to_s)
+			when "q", "quit", "exit"
+				puts "Quitting"
+				Kernel.exit
+			end
 		end
 	end
 end
 
-def scrape_thread(board, thread, path)
-	uri = "http://boards.4chan.org/#{board}/thread/#{thread[0]}"
-	dir = "#{path}/#{thread[0]}_#{thread[1][:sub].delete('/')}"
-	Dir.mkdir(dir) unless Dir.exists?(dir)
-	kek = Nokogiri::HTML(HTTParty.get(uri)).css('form#delform > div.board > div.thread > div.postContainer')
-	max = thread[1][:i] + 1
-	progress = ProgressBar.create(:title => "Scraping thread ##{thread[0]}", :total => max, :format => "%t: |%w|")
-	kek.each do |post|
-		link = post.css('div.post > div.file > a.fileThumb').first
-		next if link.nil?
-		link = link["href"].prepend("http:")
-		File.write("#{dir}/#{link[/\d+\.\w+$/]}", HTTParty.get(link))
+def scrape_thread(path, board, thread_no)
+	path = File.join(File.expand_path(path), thread_no)
+	Dir.mkdir(path) unless Dir.exists?(path)
+	thread = JSON.parse(@client.get("http://boards.4chan.org/#{board}/thread/#{thread_no}.json").body)
+	thread['posts'].keep_if {|post| post.has_key? 'filename'}
+	progress = ProgressBar.create(:title => "Scraping thread ##{thread_no}",
+																:total => thread['posts'].count,
+																:format => "%t: %c/%C %E")
+	thread['posts'].each do |post|
+		filename = '%d%s' % [post['tim'], post['ext']]
+		@client.get([STATIC_FILE_SERVER, board, filename].join('/')).save_as(File.join(path, filename))
 		progress.increment
 	end
+
 end
 
-if ARGV.count == 2
-	Dir.mkdir(ARGV[1]) unless Dir.exists?(ARGV[1])
-	show_threads(ARGV[0], ARGV[1])
+case ARGV.count
+when 2
+	@client = Mechanize.new
+	Dir.mkdir(ARGV[0]) unless Dir.exists?(ARGV[0])
+	show_threads(*ARGV)
+when 3
+	@client = Mechanize.new
+	Dir.mkdir(ARGV[0]) unless Dir.exists?(ARGV[0])
+	scrape_thread(*ARGV)
 else
-	puts "Usage: ruby scraper.rb board path"
+	puts "Usage: ruby scraper.rb path board [thread_no]"
 end
