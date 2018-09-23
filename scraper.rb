@@ -28,15 +28,18 @@ def scrape_thread(path, board, thread_no)
 	Dir.mkdir(path) unless Dir.exists?(path)
 	thread = JSON.parse(@client.get("http://boards.4chan.org/#{board}/thread/#{thread_no}.json").body)
 	thread['posts'].keep_if {|post| post.has_key? 'filename'}
-	progress = ProgressBar.create(:title => "Scraping thread ##{thread_no}",
-																:total => thread['posts'].count,
-																:format => "%t: %c/%C %E")
+	progressbar = ProgressBar.create(:title => "Scraping thread ##{thread_no}",
+																:total => (thread['posts'].sum {|thr| thr['fsize'] } / 1048576.0).round(2),
+																:format => "%t: %c/%C MiB %E")
+	threads = []
 	thread['posts'].each do |post|
-		filename = '%d%s' % [post['tim'], post['ext']]
-		@client.get([STATIC_FILE_SERVER, board, filename].join('/')).save_as(File.join(path, filename))
-		progress.increment
+		threads << Thread.new do
+			filename = '%d%s' % [post['tim'], post['ext']]
+			@client.get([STATIC_FILE_SERVER, board, filename].join('/')).save!(File.join(path, filename))
+			progressbar.progress = [(post['fsize'] / 1048576.0).round(2), progressbar.total].min
+		end
 	end
-
+	threads.each(&:join)
 end
 
 case ARGV.count
