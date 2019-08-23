@@ -36,13 +36,18 @@ def scrape_thread(path, board, thread_no)
     threads << Thread.new do
       filename = '%d%s' % [post['tim'], post['ext']]
       @client.get([STATIC_FILE_SERVER, board, filename].join('/')).save!(File.join(path, filename))
-      progressbar.progress = [(post['fsize'] / 1048576.0).round(2), progressbar.total].min
+      progressbar.progress += (post['fsize'] / 1048576.0).round(2)
     end
   end
   threads.each(&:join)
+  # progressbar.finish
+  puts
 end
 
 case ARGV.count
+when 1
+  @client = Mechanize.new
+  scrape_thread('.', ARGV[0][%r(http://boards.4chan.org/([^/]+)/thread/\d+$), 1], ARGV[0][/\d+$/])
 when 2
   @client = Mechanize.new
   Dir.mkdir(ARGV[0]) unless Dir.exists?(ARGV[0])
